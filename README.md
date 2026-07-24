@@ -22,7 +22,7 @@ During steady fixation on a stationary object, the eyes continue to make micro-m
 ### 3. Blink Rate & Drowsiness (PERCLOS)
 Eye closures and blink patterns change significantly with fatigue.
 - **Method**: Tracking the vertical-to-horizontal ratio of the eyelids (Eye Aspect Ratio - EAR).
-- **PERCLOS**: Percentage of eye closure time (EAR < 0.18) during the 30-second trial window. A high PERCLOS score (>15%) is a clinically established indicator of micro-sleep states and severe drowsiness.
+- **PERCLOS**: Percentage of eye closure time (EAR < 0.18) during the 20-second trial window. A high PERCLOS score (>15%) is a clinically established indicator of micro-sleep states and severe drowsiness.
 
 ---
 
@@ -40,7 +40,7 @@ The app uses **Eye Socket Normalization** to make pupil tracking robust against 
    Displays targets at four corners ($10\%$ and $90\%$ of screen margins). It samples the minimum and maximum normal features ($fx_{min}, fx_{max}, fy_{min}, fy_{max}$) to construct a linear interpolation mapping to pixel coordinates.
 
 3. **Cognitive Readiness Index**:
-   $$Readiness (\%) = (0.50 \times LatencyFactor + 0.25 \times JitterFactor + 0.25 \times DrowsinessFactor) \times 100\%$$
+   $$Readiness (%) = (0.50 \times LatencyFactor + 0.25 \times JitterFactor + 0.25 \times DrowsinessFactor) \times 100\%$$
    - **Latency Factor**: Clamped linear function between 180ms (1.0) and 450ms (0.0).
    - **Jitter Factor**: Clamped linear function between 7px (1.0) and 38px (0.0).
    - **Drowsiness Factor**: Clamped linear function between 0% PERCLOS (1.0) and 22% PERCLOS (0.0).
@@ -61,3 +61,12 @@ Since the app is entirely client-side, it runs out of the box in modern browsers
 ## 🔒 Privacy & Security
 
 All mathematical calculations and video frames are processed **locally in the browser** using WebAssembly. No webcam footage or coordinate telemetry is sent to external servers or cloud services.
+
+---
+
+Copyright (c) 2026 Rajveer Sanghvi. All Rights Reserved.
+
+This repository and its source code are proprietary and confidential. 
+Unauthorized copying, modification, distribution, or commercial use of 
+this software via any medium is strictly prohibited without explicit 
+written permission from the copyright owner.

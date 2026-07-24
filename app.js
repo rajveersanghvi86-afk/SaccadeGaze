@@ -34,7 +34,7 @@ const state = {
 
   // Stimulus test state
   trialActive: false,
-  trialTimeLeft: 30.0,
+  trialTimeLeft: 20.0,
   stimulusMode: 'idle', // 'idle' | 'pursuit' | 'saccadic'
   targetX: 0,
   targetY: 0,
@@ -646,7 +646,7 @@ function processBlink(ear) {
   }
 
   // Update rolling statistics indicators
-  const blinkRate = Math.round(state.blinkCount * (60000 / (state.trialActive ? (30000 - state.trialTimeLeft * 1000 + 1) : 30000)));
+  const blinkRate = Math.round(state.blinkCount * (60000 / (state.trialActive ? (20000 - state.trialTimeLeft * 1000 + 1) : 20000)));
   const perclos = (state.closedFrames / (state.totalFrames + 1)) * 100;
   
   if (state.trialActive) {
@@ -827,7 +827,7 @@ function startScreeningTrial() {
 
   // Reset diagnostic lists
   state.trialActive = true;
-  state.trialTimeLeft = 30.0;
+  state.trialTimeLeft = 20.0;
   state.latencyHistory = [];
   state.jitterHistory = [];
   state.blinkCount = 0;
@@ -843,7 +843,7 @@ function startScreeningTrial() {
 
   playBeep(800, 0.15, 'triangle');
 
-  // Start the 30-second Countdown Timer
+  // Start the 20-second Countdown Timer
   els.testTimer.innerText = `${state.trialTimeLeft.toFixed(1)}s`;
   testTimerInterval = setInterval(() => {
     state.trialTimeLeft -= 0.1;
@@ -855,18 +855,18 @@ function startScreeningTrial() {
     els.testTimer.innerText = `${state.trialTimeLeft.toFixed(1)}s`;
   }, 100);
 
-  // Sequence: 0s - 6s Smooth Pursuit drift, 6s - 30s Saccade teleports
+  // Sequence: 0s - 5s Smooth Pursuit drift, 5s - 20s Saccade teleports
   state.stimulusMode = 'pursuit';
   startSmoothPursuit();
 
-  // Schedule transition to Saccade Step after 6 seconds
+  // Schedule transition to Saccade Step after 5 seconds
   setTimeout(() => {
     if (state.trialActive) {
       state.stimulusMode = 'saccadic';
       cancelAnimationFrame(pursuitFrameId);
       startSaccadeJumps();
     }
-  }, 6000);
+  }, 5000);
 }
 
 // Phase 1: Smooth Pursuit (Cosine wave drift)
