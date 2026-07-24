@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SaccadeGaze AI - Neurological & Ocular Latency Screening</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- jsPDF for report downloads -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <!-- MediaPipe Face Mesh CDN Dependencies -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js" crossorigin="anonymous"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Outfit', 'sans-serif'],
+          },
+          colors: {
+            slate: {
+              950: '#020617',
+              900: '#0f172a',
+              800: '#1e293b',
+              700: '#334155',
+            }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-slate-950 text-slate-50 min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40 px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+        <i data-lucide="eye" class="w-6 h-6 text-white"></i>
+      </div>
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">Saccade<span class="text-gradient">Gaze AI</span></h1>
+        <p class="text-xs text-slate-400 font-medium">Ocular Latency & Neurological Fatigue Screening</p>
+      </div>
+    </div>
+
+    <!-- Status Badges Bar -->
+    <div class="flex flex-wrap items-center gap-3 text-sm">
+      <!-- Camera Status -->
+      <div class="flex items-center gap-2 bg-slate-900/80 px-3 py-1.5 rounded-full border border-slate-800">
+        <span id="camera-indicator" class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+        <span class="text-xs font-semibold text-slate-300">Camera: <span id="camera-status-text">Inactive</span></span>
+      </div>
+      <!-- Mode Badge -->
+      <div id="mode-badge" class="flex items-center gap-1.5 bg-indigo-950/40 text-indigo-300 px-3 py-1.5 rounded-full border border-indigo-900/60">
+        <i data-lucide="cpu" class="w-3.5 h-3.5"></i>
+        <span class="text-xs font-semibold" id="mode-text">Hardware Mode</span>
+      </div>
+      <!-- FPS Counter -->
+      <div class="flex items-center gap-1.5 bg-slate-900/80 text-slate-300 px-3 py-1.5 rounded-full border border-slate-800">
+        <i data-lucide="zap" class="w-3.5 h-3.5 text-yellow-400"></i>
+        <span class="text-xs font-semibold">FPS: <span id="fps-val" class="font-mono">--</span></span>
+      </div>
+      <!-- Tracking Confidence -->
+      <div class="flex items-center gap-1.5 bg-slate-900/80 text-slate-300 px-3 py-1.5 rounded-full border border-slate-800">
+        <i data-lucide="activity" class="w-3.5 h-3.5 text-cyan-400"></i>
+        <span class="text-xs font-semibold">Mesh Confidence: <span id="confidence-val" class="font-mono">0%</span></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Layout -->
+  <main class="flex-grow p-6 lg:p-8 max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-8">
+    
+    <!-- Left Column: Camera Feed & Controller (4 Cols) -->
+    <section class="lg:col-span-4 flex flex-col gap-6">
+      
+      <!-- Video Container -->
+      <div class="glass-panel rounded-2xl p-4 flex flex-col gap-4 relative overflow-hidden shadow-2xl">
+        <div class="flex items-center justify-between border-b border-slate-800/60 pb-3">
+          <div class="flex items-center gap-2">
+            <i data-lucide="video" class="w-4 h-4 text-cyan-400"></i>
+            <h2 class="text-sm font-bold uppercase tracking-wider text-slate-300">Live Diagnostics Feed</h2>
+          </div>
+          <!-- Toggle Gaze Visualization -->
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="toggle-gaze-visual" class="sr-only peer">
+            <div class="w-9 h-5 bg-slate-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-500 peer-checked:after:bg-slate-950"></div>
+            <span class="ml-2 text-xs text-slate-400 font-medium select-none">Show Gaze</span>
+          </label>
+        </div>
+
+        <div class="relative w-full aspect-video rounded-xl bg-slate-950 border border-slate-800/80 flex items-center justify-center overflow-hidden">
+          <!-- Fallback Visualizer when no camera -->
+          <div id="video-fallback" class="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10 bg-slate-950">
+            <div class="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500 mb-3 animate-pulse">
+              <i data-lucide="video-off" class="w-6 h-6"></i>
+            </div>
+            <p class="text-sm font-semibold text-slate-300">Webcam Inactive</p>
+            <p class="text-xs text-slate-500 mt-1">Start camera access below or test with Demo Preset Mode.</p>
+          </div>
+
+          <!-- Video element -->
+          <video id="webcam" autoplay playsinline class="mirror w-full h-full object-cover rounded-xl hidden z-0"></video>
+          <!-- Drawing Overlay Canvas -->
+          <canvas id="overlay-canvas" class="mirror absolute top-0 left-0 w-full h-full object-cover rounded-xl pointer-events-none z-10"></canvas>
+        </div>
+
+        <!-- Controls -->
+        <div class="grid grid-cols-2 gap-3 mt-1">
+          <button id="btn-start-camera" class="col-span-2 py-3 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/30">
+            <i data-lucide="video" class="w-4 h-4"></i>
+            <span>Initialize Camera</span>
+          </button>
+          <button id="btn-demo-mode" class="py-2.5 px-3 rounded-xl font-semibold text-xs border border-slate-800 bg-slate-900/50 hover:bg-slate-850 hover:border-slate-700 text-slate-300 transition-all flex items-center justify-center gap-1.5">
+            <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
+            <span>Demo Preset</span>
+          </button>
+          <button id="btn-reset" class="py-2.5 px-3 rounded-xl font-semibold text-xs border border-slate-800 bg-slate-900/50 hover:bg-slate-850 hover:border-slate-700 text-slate-300 transition-all flex items-center justify-center gap-1.5">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+            <span>Reset Analytics</span>
+          </button>
+        </div>
+
+        <!-- Debug Console for tracking errors -->
+        <div id="debug-log-container" class="hidden text-[10px] font-mono bg-rose-950/30 border border-rose-900/40 rounded-lg p-2.5 mt-2 overflow-y-auto max-h-[85px]">
+          <div class="flex items-center gap-1.5 text-rose-400 font-bold mb-1 border-b border-rose-900/35 pb-1">
+            <i data-lucide="alert-circle" class="w-3.5 h-3.5"></i>
+            <span>System Console Diagnostic</span>
+          </div>
+          <div id="debug-log-text" class="flex flex-col gap-0.5 text-slate-300 max-h-[50px]"></div>
+        </div>
+      </div>
+
+      <!-- Calibration & Guidelines Info -->
+      <div class="glass-panel rounded-2xl p-4 flex flex-col gap-3">
+        <h3 class="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+          <i data-lucide="book-open" class="w-4 h-4 text-indigo-400"></i>
+          <span>How Screening Works</span>
+        </h3>
+        <ol class="text-xs text-slate-400 flex flex-col gap-2.5 list-decimal pl-4">
+          <li><strong>Position Face:</strong> Align head in the webcam frame. Ensure eyes are visible and well-lit.</li>
+          <li><strong>Spatial Calibration:</strong> Press <strong class="text-indigo-400">Calibrate</strong> and follow the glowing dot as it guides you to look at the screen corners.</li>
+          <li><strong>Latency Test:</strong> Click <strong class="text-cyan-400">Start Screening</strong>. Keep head still and follow the jumping cyan dot.</li>
+          <li><strong>Review Assessment:</strong> At 30 seconds, view your Neurological Readiness score and diagnostic chart.</li>
+        </ol>
+      </div>
+
+    </section>
+
+    <!-- Right Column: Stimulus Screen, Metrics & Chart (8 Cols) -->
+    <section class="lg:col-span-8 flex flex-col gap-8">
+      
+      <!-- Stimulus Test Screen Card -->
+      <div class="glass-panel rounded-2xl p-4 flex flex-col gap-4 shadow-2xl relative">
+        <div class="flex items-center justify-between border-b border-slate-800/60 pb-3">
+          <div class="flex items-center gap-2">
+            <i data-lucide="focus" class="w-4 h-4 text-cyan-400"></i>
+            <h2 class="text-sm font-bold uppercase tracking-wider text-slate-300">Stimulus Testing Canvas</h2>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="btn-calibrate" disabled class="py-1.5 px-4 rounded-lg font-bold text-xs bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 transition-all flex items-center gap-1.5 border border-slate-700">
+              <i data-lucide="compass" class="w-3.5 h-3.5"></i>
+              <span>Calibrate Eyes</span>
+            </button>
+            <button id="btn-start-test" disabled class="py-1.5 px-4 rounded-lg font-bold text-xs bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 transition-all flex items-center gap-1.5">
+              <i data-lucide="play" class="w-3.5 h-3.5 text-slate-950"></i>
+              <span>Start Screening</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Black Clinical testing frame -->
+        <div id="stimulus-frame" class="relative w-full h-[400px] bg-black border border-slate-900 rounded-xl overflow-hidden shadow-inner flex items-center justify-center">
+          
+          <!-- Default Overlay Instruction -->
+          <div id="stimulus-instruction" class="absolute inset-0 z-20 flex flex-col items-center justify-center p-8 bg-black/90 text-center gap-4 transition-opacity duration-300">
+            <div class="w-16 h-16 rounded-full bg-slate-950 border border-slate-800 flex items-center justify-center text-cyan-400 glow-cyan">
+              <i data-lucide="sparkles" class="w-8 h-8"></i>
+            </div>
+            <div>
+              <h3 class="text-lg font-bold text-slate-200">Stimulus Interface</h3>
+              <p class="text-xs text-slate-500 max-w-sm mt-1 mx-auto">This screen serves as the ocular track area. Please calibrate before launching the 30-second fatigue screening test.</p>
+            </div>
+            <div id="init-warning" class="text-xs text-amber-400 font-semibold bg-amber-950/20 px-3 py-1.5 rounded-lg border border-amber-900/30 flex items-center gap-1.5">
+              <i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i>
+              <span>Please initialize the camera or select Demo Preset first.</span>
+            </div>
+          </div>
+
+          <!-- Calibration Step Guide Screen -->
+          <div id="calibration-guide" class="absolute inset-0 z-25 bg-black/95 flex flex-col items-center justify-center text-center hidden gap-3">
+            <div class="w-12 h-12 rounded-full border-2 border-dashed border-cyan-400 animate-spin flex items-center justify-center text-cyan-400 mb-2">
+              <i data-lucide="crosshair" class="w-5 h-5"></i>
+            </div>
+            <h3 class="text-md font-bold text-slate-200">System Calibrating...</h3>
+            <p id="calibration-step-text" class="text-xs text-cyan-400 font-mono">Look at target & hold still</p>
+            <div class="w-48 bg-slate-900 rounded-full h-1.5 border border-slate-850 mt-1">
+              <div id="calibration-progress" class="bg-cyan-400 h-full rounded-full transition-all duration-200" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- Active Test HUD / Timer overlay -->
+          <div id="test-hud" class="absolute top-4 left-4 z-20 hidden flex items-center gap-3">
+            <div class="bg-slate-950/80 backdrop-blur border border-slate-850 px-3 py-1.5 rounded-lg flex items-center gap-2">
+              <span class="w-2 h-2 bg-rose-500 rounded-full animate-ping"></span>
+              <span class="text-xs font-semibold tracking-wider text-rose-400 uppercase font-mono">TRIAL ACTIVE</span>
+            </div>
+            <div class="bg-slate-950/80 backdrop-blur border border-slate-850 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 font-mono">
+              TIME REMAINING: <span id="test-timer" class="text-cyan-400">30.0s</span>
+            </div>
+          </div>
+
+          <!-- Stimulus Moving target dot -->
+          <div id="stimulus-dot" class="absolute w-5 h-5 rounded-full bg-cyan-400 glow-cyan animate-target-pulse hidden z-30 transform -translate-x-1/2 -translate-y-1/2"></div>
+          
+          <!-- Calibration target rings -->
+          <div id="calibration-target-container" class="absolute hidden z-30 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+            <div class="relative w-12 h-12 flex items-center justify-center">
+              <div class="absolute inset-0 rounded-full border border-cyan-400/40 calibration-ring"></div>
+              <div class="absolute w-8 h-8 rounded-full border border-cyan-400/80 animate-ping"></div>
+              <div class="w-4 h-4 rounded-full bg-cyan-400 glow-cyan"></div>
+            </div>
+          </div>
+
+          <!-- Simulated/Estimated gaze crosshair -->
+          <div id="gaze-crosshair" class="absolute w-6 h-6 hidden z-20 pointer-events-none transform -translate-x-1/2 -translate-y-1/2">
+            <div class="absolute inset-0 border border-indigo-400/40 rounded-full animate-eye-radar"></div>
+            <div class="absolute top-1/2 left-0 w-6 h-[1px] bg-indigo-400/85"></div>
+            <div class="absolute top-0 left-1/2 h-6 w-[1px] bg-indigo-400/85"></div>
+            <div class="absolute top-1/2 left-1/2 w-1.5 h-1.5 rounded-full bg-indigo-400 -translate-x-1/2 -translate-y-1/2 shadow-lg shadow-indigo-500/50"></div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Real-Time Metrics Panel & Circular Chart -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+        
+        <!-- Saccadic Latency Metric -->
+        <div class="glass-panel rounded-2xl p-4 flex flex-col gap-2 relative overflow-hidden">
+          <div class="absolute -right-4 -bottom-4 opacity-[0.03] text-cyan-400">
+            <i data-lucide="zap" class="w-24 h-24"></i>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Saccadic Latency</span>
+            <div class="w-6 h-6 rounded-lg bg-cyan-950/40 flex items-center justify-center border border-cyan-900/35">
+              <i data-lucide="zap" class="w-3.5 h-3.5 text-cyan-400"></i>
+            </div>
+          </div>
+          <div class="flex items-baseline gap-1 mt-1">
+            <span id="latency-val" class="text-3xl font-extrabold font-mono tracking-tight text-cyan-400">--</span>
+            <span class="text-xs text-slate-400 font-medium">ms</span>
+          </div>
+          <span id="latency-status" class="text-xs font-semibold text-slate-500 mt-0.5">Not Tested</span>
+        </div>
+
+        <!-- Fixation Jitter Metric -->
+        <div class="glass-panel rounded-2xl p-4 flex flex-col gap-2 relative overflow-hidden">
+          <div class="absolute -right-4 -bottom-4 opacity-[0.03] text-indigo-400">
+            <i data-lucide="activity" class="w-24 h-24"></i>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Fixation Jitter</span>
+            <div class="w-6 h-6 rounded-lg bg-indigo-950/40 flex items-center justify-center border border-indigo-900/35">
+              <i data-lucide="activity" class="w-3.5 h-3.5 text-indigo-400"></i>
+            </div>
+          </div>
+          <div class="flex items-baseline gap-1 mt-1">
+            <span id="jitter-val" class="text-3xl font-extrabold font-mono tracking-tight text-indigo-400">--</span>
+            <span class="text-xs text-slate-400 font-medium">px</span>
+          </div>
+          <span id="jitter-status" class="text-xs font-semibold text-slate-500 mt-0.5">Not Tested</span>
+        </div>
+
+        <!-- Blink Rate & Drowsiness Metric -->
+        <div class="glass-panel rounded-2xl p-4 flex flex-col gap-2 relative overflow-hidden">
+          <div class="absolute -right-4 -bottom-4 opacity-[0.03] text-rose-400">
+            <i data-lucide="eye" class="w-24 h-24"></i>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Blinks & Drowsiness</span>
+            <div class="w-6 h-6 rounded-lg bg-rose-950/40 flex items-center justify-center border border-rose-900/35">
+              <i data-lucide="eye" class="w-3.5 h-3.5 text-rose-400"></i>
+            </div>
+          </div>
+          <div class="flex items-baseline gap-1 mt-1">
+            <span id="blink-val" class="text-3xl font-extrabold font-mono tracking-tight text-rose-400">--</span>
+            <span class="text-xs text-slate-400 font-medium">/min</span>
+          </div>
+          <span id="drowsiness-val" class="text-xs font-semibold text-slate-500 mt-0.5">Not Tested</span>
+        </div>
+
+        <!-- Cognitive Readiness Metric (Gauge) -->
+        <div class="glass-panel rounded-2xl p-4 flex items-center gap-4 relative overflow-hidden">
+          <div class="flex-grow flex flex-col gap-1">
+            <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Readiness Score</span>
+            <span id="readiness-status" class="text-xs font-semibold text-slate-500">Pending</span>
+            <div class="text-gradient font-black text-2xl font-mono mt-1" id="readiness-val">--%</div>
+          </div>
+          <div class="relative w-16 h-16 flex items-center justify-center">
+            <!-- Circular Gauge -->
+            <svg class="w-full h-full transform -rotate-90">
+              <circle cx="32" cy="32" r="28" stroke="currentColor" stroke-width="4.5" class="text-slate-800" fill="transparent" />
+              <circle cx="32" cy="32" r="28" stroke="currentColor" stroke-width="4.5" class="text-indigo-500 transition-all duration-500" stroke-dasharray="175.9" stroke-dashoffset="175.9" id="readiness-circle" fill="transparent" />
+            </svg>
+            <div class="absolute inset-0 flex items-center justify-center">
+              <i data-lucide="brain" class="w-5 h-5 text-indigo-400"></i>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Chart.js Graph Panel -->
+      <div class="glass-panel rounded-2xl p-6 shadow-2xl flex flex-col gap-4">
+        <div class="flex items-center justify-between border-b border-slate-800/60 pb-3">
+          <div class="flex items-center gap-2">
+            <i data-lucide="trending-up" class="w-4 h-4 text-indigo-400"></i>
+            <h2 class="text-sm font-bold uppercase tracking-wider text-slate-300">Saccadic Target Reaction Plot</h2>
+          </div>
+          <span class="text-xs text-slate-500 font-semibold font-mono">Last 30-Second Trial Profile</span>
+        </div>
+        <div class="w-full h-[220px] relative">
+          <canvas id="latency-chart" class="w-full h-full"></canvas>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- Diagnostic Assessment Result Modal -->
+  <div id="results-modal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="glass-panel w-full max-w-lg rounded-3xl p-6 border border-slate-800/80 glow-indigo flex flex-col gap-6 animate-modal-entrance">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-indigo-950/60 border border-indigo-900/60 flex items-center justify-center text-indigo-400">
+            <i data-lucide="award" class="w-4.5 h-4.5"></i>
+          </div>
+          <h2 class="text-lg font-extrabold text-slate-200">Diagnostics Assessment Summary</h2>
+        </div>
+        <button id="btn-close-modal" class="text-slate-400 hover:text-slate-200 transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Score Banner -->
+      <div class="bg-gradient-to-r from-slate-900 via-indigo-950/30 to-slate-900 border border-indigo-900/35 p-5 rounded-2xl text-center flex flex-col items-center justify-center gap-2 relative overflow-hidden">
+        <div class="absolute -left-12 -top-12 opacity-[0.02] text-indigo-400">
+          <i data-lucide="brain-circuit" class="w-36 h-36"></i>
+        </div>
+        <div class="text-xs uppercase font-extrabold tracking-wider text-slate-400">Neurological Readiness Index</div>
+        <div class="text-5xl font-black text-gradient font-mono tracking-tighter" id="modal-readiness-val">88%</div>
+        <div class="px-4 py-1 rounded-full text-xs font-bold border" id="modal-status-badge">Optimal Alertness</div>
+      </div>
+
+      <!-- Core Stats Breakdown Grid -->
+      <div class="grid grid-cols-3 gap-3">
+        <div class="bg-slate-900/50 border border-slate-850 p-3.5 rounded-xl text-center">
+          <div class="text-[10px] uppercase font-bold tracking-wider text-slate-400">Saccade Speed</div>
+          <div class="text-xl font-bold font-mono text-cyan-400 mt-1" id="modal-latency-val">220 ms</div>
+        </div>
+        <div class="bg-slate-900/50 border border-slate-850 p-3.5 rounded-xl text-center">
+          <div class="text-[10px] uppercase font-bold tracking-wider text-slate-400">Gaze Jitter</div>
+          <div class="text-xl font-bold font-mono text-indigo-400 mt-1" id="modal-jitter-val">12.5 px</div>
+        </div>
+        <div class="bg-slate-900/50 border border-slate-850 p-3.5 rounded-xl text-center">
+          <div class="text-[10px] uppercase font-bold tracking-wider text-slate-400">Blinks / Closure</div>
+          <div class="text-xl font-bold font-mono text-rose-400 mt-1" id="modal-blinks-val">12 / 1.5%</div>
+        </div>
+      </div>
+
+      <!-- Diagnostic Assessment Text Card -->
+      <div class="bg-slate-900/40 border border-slate-850 rounded-xl p-4 flex flex-col gap-2.5">
+        <div class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+          <i data-lucide="clipboard-list" class="w-3.5 h-3.5 text-indigo-400"></i>
+          <span>Clinical Interpretation & Actions</span>
+        </div>
+        <p class="text-xs text-slate-400 leading-relaxed" id="modal-diagnostic-text">
+          Evaluating target coordinates...
+        </p>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="flex flex-col sm:flex-row items-center gap-3 w-full border-t border-slate-800/50 pt-4">
+        <button id="btn-modal-close" class="w-full sm:w-auto px-5 py-3 rounded-xl font-bold text-sm bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors">
+          Dismiss
+        </button>
+        <button id="btn-modal-download" class="flex-grow w-full py-3 rounded-xl font-bold text-sm bg-slate-900 border border-slate-700 hover:bg-slate-850 hover:border-slate-600 text-cyan-400 transition-all flex items-center justify-center gap-1.5 shadow-md">
+          <i data-lucide="download" class="w-4 h-4 text-cyan-400"></i>
+          <span>Download Report</span>
+        </button>
+        <button id="btn-modal-restart" class="flex-grow w-full py-3 rounded-xl font-bold text-sm bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white transition-all shadow-lg shadow-indigo-900/30 flex items-center justify-center gap-1.5">
+          <i data-lucide="repeat" class="w-4 h-4"></i>
+          <span>Restart Test</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="mt-auto border-t border-slate-900/80 bg-slate-950/60 py-6 px-6 text-center text-xs text-slate-500 font-medium">
+    <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+      <p>SaccadeGaze AI Ocular Diagnostic Dashboard. Non-diagnostic utility for research and demonstration.</p>
+      <div class="flex items-center gap-4 text-slate-400">
+        <span class="hover:text-slate-300 cursor-pointer">Security Protocol</span>
+        <span class="text-slate-700">|</span>
+        <span class="hover:text-slate-300 cursor-pointer">Science & Methodology</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- App script loading -->
+  <script src="app.js" type="module"></script>
+  <script>
+    // Activate Lucide icons
+    lucide.createIcons();
+  </script>
+</body>
+</html>
