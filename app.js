@@ -678,18 +678,26 @@ function onResults(results) {
     }
 
     // Real-time checks for distance/positioning & lighting contrast shifts
-    if (state.isCalibrated && (state.trialActive || state.calibrationActive)) {
+    if (state.isCalibrated) {
       const sizeDev = state.baselineFaceSize > 0 ? Math.abs(currentFaceSize - state.baselineFaceSize) / state.baselineFaceSize : 0;
-      const isContrastLow = currentContrast < 18;
+      const isContrastLow = currentContrast < 20; // Relaxed slightly to 20 for better sensitivity
       const isSizeShifted = sizeDev > 0.15;
       
       if (isContrastLow || isSizeShifted) {
         showCalibrationWarning("Light environment shifted. Recalibrating eye baseline...");
+        if (Math.random() < 0.03) {
+          console.log(`[SaccadeGaze Warning] sizeDev: ${(sizeDev * 100).toFixed(1)}%, contrast: ${currentContrast.toFixed(1)}`);
+        }
       } else {
         hideCalibrationWarning();
       }
     } else {
-      hideCalibrationWarning();
+      // Even if not calibrated, warn if contrast is extremely low
+      if (currentContrast < 20) {
+        showCalibrationWarning("Light environment shifted. Recalibrating eye baseline...");
+      } else {
+        hideCalibrationWarning();
+      }
     }
 
     // Draw Overlays (Irises and Eye outlines)
