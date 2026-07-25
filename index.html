@@ -221,6 +221,12 @@
             </div>
           </div>
 
+          <!-- Calibration Warning Toast -->
+          <div id="calibration-warning-toast" class="absolute top-4 left-1/2 -translate-x-1/2 bg-amber-950/90 text-amber-300 px-4 py-2 rounded-xl border border-amber-500/30 text-xs font-semibold flex items-center gap-2 shadow-lg hidden z-35 transition-all duration-300">
+            <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-400"></i>
+            <span id="calibration-warning-text">Light environment shifted. Recalibrating eye baseline...</span>
+          </div>
+
           <!-- Stimulus Moving target dot -->
           <div id="stimulus-dot" class="absolute w-5 h-5 rounded-full bg-cyan-400 glow-cyan animate-target-pulse hidden z-30 transform -translate-x-1/2 -translate-y-1/2"></div>
           

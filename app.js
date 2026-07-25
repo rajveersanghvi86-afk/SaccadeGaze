@@ -61,7 +61,15 @@ const state = {
   simGazeX: 0,
   simGazeY: 0,
   simLatencyDelay: 220, // ms of reaction time to simulate
-  simJitterScale: 8.5 // px
+  simJitterScale: 8.5, // px
+
+  // Noise filter history and baseline calibrations
+  fxHistory: [],
+  fyHistory: [],
+  baselineFaceSize: 0,
+  baselineContrast: 0,
+  calibFaceSizes: [],
+  calibContrasts: []
 };
 
 // UI Elements
@@ -105,6 +113,10 @@ const els = {
   readinessVal: document.getElementById('readiness-val'),
   readinessStatus: document.getElementById('readiness-status'),
   readinessCircle: document.getElementById('readiness-circle'),
+  
+  // Calibration Warning
+  warningToast: document.getElementById('calibration-warning-toast'),
+  warningToastText: document.getElementById('calibration-warning-text'),
   
   // Modal
   resultsModal: document.getElementById('results-modal'),
@@ -243,6 +255,83 @@ function initChart() {
 // 2D distance helper
 function getDistance(p1, p2) {
   return Math.hypot(p1.x - p2.x, p1.y - p2.y);
+}
+
+// Median calculation helper for 3-frame filtering
+function getMedian(arr) {
+  const sorted = [...arr].sort((a, b) => a - b);
+  if (sorted.length === 0) return 0;
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+// Offscreen canvas for luminance contrast checks (high-performance 80x60 size)
+let offscreenCanvas = null;
+let offscreenCtx = null;
+
+function calculateWebcamContrast() {
+  if (!els.webcam || els.webcam.videoWidth === 0) return 50; // Return neutral fallback if camera not ready
+  
+  if (!offscreenCanvas) {
+    offscreenCanvas = document.createElement('canvas');
+    offscreenCanvas.width = 80;
+    offscreenCanvas.height = 60;
+    offscreenCtx = offscreenCanvas.getContext('2d');
+  }
+  
+  try {
+    offscreenCtx.drawImage(els.webcam, 0, 0, 80, 60);
+    const imgData = offscreenCtx.getImageData(0, 0, 80, 60).data;
+    
+    let sum = 0;
+    const len = imgData.length;
+    for (let i = 0; i < len; i += 4) {
+      const r = imgData[i];
+      const g = imgData[i+1];
+      const b = imgData[i+2];
+      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+      sum += gray;
+    }
+    const avg = sum / (len / 4);
+    
+    let sqDiffSum = 0;
+    for (let i = 0; i < len; i += 4) {
+      const r = imgData[i];
+      const g = imgData[i+1];
+      const b = imgData[i+2];
+      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+      sqDiffSum += (gray - avg) * (gray - avg);
+    }
+    
+    const stdDev = Math.sqrt(sqDiffSum / (len / 4));
+    return stdDev; // Returns contrast (standard deviation of grayscale values)
+  } catch (e) {
+    return 50; // Fallback
+  }
+}
+
+// Shows or updates calibration warning toast visually
+function showCalibrationWarning(message) {
+  if (els.warningToast && els.warningToastText) {
+    els.warningToastText.innerText = message;
+    els.warningToast.classList.remove('hidden');
+    els.warningToast.classList.remove('scale-95', 'opacity-0');
+    els.warningToast.classList.add('scale-100', 'opacity-100');
+  }
+}
+
+// Hides calibration warning toast visually
+function hideCalibrationWarning() {
+  if (els.warningToast) {
+    els.warningToast.classList.remove('scale-100', 'opacity-100');
+    els.warningToast.classList.add('scale-95', 'opacity-0');
+    // Hide completely after transition finishes (300ms)
+    setTimeout(() => {
+      if (els.warningToast && els.warningToast.classList.contains('opacity-0')) {
+        els.warningToast.classList.add('hidden');
+      }
+    }, 300);
+  }
 }
 
 // Compute Eye Aspect Ratio (EAR)
@@ -555,16 +644,52 @@ function onResults(results) {
     // Compute pupil gaze normalization feature coordinates
     const eyeFeatures = extractGazeFeatures(landmarks);
 
+    // Apply 3-frame median moving average filter on raw coordinates
+    state.fxHistory.push(eyeFeatures.fx);
+    state.fyHistory.push(eyeFeatures.fy);
+    if (state.fxHistory.length > 3) state.fxHistory.shift();
+    if (state.fyHistory.length > 3) state.fyHistory.shift();
+
+    const filteredFx = getMedian(state.fxHistory);
+    const filteredFy = getMedian(state.fyHistory);
+
     // Update Gaze estimates if calibrated
     if (state.isCalibrated) {
-      estimateGaze(eyeFeatures.fx, eyeFeatures.fy);
+      estimateGaze(filteredFx, filteredFy);
       updateGazeIndicator();
     }
+
+    // Compute current face dimensions (distance metric) and luminance contrast
+    const xCoords = landmarks.map(p => p.x);
+    const yCoords = landmarks.map(p => p.y);
+    const xMin = Math.min(...xCoords);
+    const xMax = Math.max(...xCoords);
+    const yMin = Math.min(...yCoords);
+    const yMax = Math.max(...yCoords);
+    const currentFaceSize = Math.hypot(xMax - xMin, yMax - yMin);
+    const currentContrast = calculateWebcamContrast();
 
     // If Calibration Stage is running, collect calibration coordinate samples
     // Skip frames where the user blinked (EAR < 0.16) to prevent calibration corruption
     if (state.calibrationActive && ear >= 0.16) {
-      recordCalibrationSample(eyeFeatures.fx, eyeFeatures.fy);
+      recordCalibrationSample(filteredFx, filteredFy);
+      state.calibFaceSizes.push(currentFaceSize);
+      state.calibContrasts.push(currentContrast);
+    }
+
+    // Real-time checks for distance/positioning & lighting contrast shifts
+    if (state.isCalibrated && (state.trialActive || state.calibrationActive)) {
+      const sizeDev = state.baselineFaceSize > 0 ? Math.abs(currentFaceSize - state.baselineFaceSize) / state.baselineFaceSize : 0;
+      const isContrastLow = currentContrast < 18;
+      const isSizeShifted = sizeDev > 0.15;
+      
+      if (isContrastLow || isSizeShifted) {
+        showCalibrationWarning("Light environment shifted. Recalibrating eye baseline...");
+      } else {
+        hideCalibrationWarning();
+      }
+    } else {
+      hideCalibrationWarning();
     }
 
     // Draw Overlays (Irises and Eye outlines)
@@ -691,6 +816,10 @@ function startCalibration() {
   state.calibrationIndex = 0;
   state.calibrationSamples = [];
   state.isCalibrated = false;
+  state.fxHistory = [];
+  state.fyHistory = [];
+  state.calibFaceSizes = [];
+  state.calibContrasts = [];
   
   els.stimulusInstruction.classList.add('hidden');
   els.calibrationGuide.classList.remove('hidden');
@@ -781,6 +910,14 @@ function finishCalibration() {
     state.calibBounds.fxMax = fxRight;
     state.calibBounds.fyMin = fyTop;
     state.calibBounds.fyMax = fyBottom;
+
+    // Calculate baseline face size and contrast averages
+    if (state.calibFaceSizes.length > 0) {
+      state.baselineFaceSize = state.calibFaceSizes.reduce((a, b) => a + b, 0) / state.calibFaceSizes.length;
+    }
+    if (state.calibContrasts.length > 0) {
+      state.baselineContrast = state.calibContrasts.reduce((a, b) => a + b, 0) / state.calibContrasts.length;
+    }
 
     state.isCalibrated = true;
     
@@ -1030,10 +1167,10 @@ function calculateAndLogJitter() {
     const avgJitter = state.jitterHistory.reduce((a,b)=>a+b, 0) / state.jitterHistory.length;
     els.jitterVal.innerText = avgJitter.toFixed(1);
     
-    if (avgJitter < 12.0) {
+    if (avgJitter < 22.0) {
       els.jitterStatus.innerText = "Steady Gaze";
       els.jitterStatus.className = "text-xs font-semibold text-emerald-400 mt-0.5";
-    } else if (avgJitter < 25.0) {
+    } else if (avgJitter < 40.0) {
       els.jitterStatus.innerText = "Moderate Jitter";
       els.jitterStatus.className = "text-xs font-semibold text-amber-400 mt-0.5";
     } else {
@@ -1054,10 +1191,10 @@ function updateChart(step, value) {
   const avgLatency = Math.round(state.latencyHistory.reduce((a,b)=>a+b, 0) / state.latencyHistory.length);
   els.latencyVal.innerText = avgLatency;
   
-  if (avgLatency <= 230) {
+  if (avgLatency <= 280) {
     els.latencyStatus.innerText = "Optimal Latency";
     els.latencyStatus.className = "text-xs font-semibold text-emerald-400 mt-0.5";
-  } else if (avgLatency <= 340) {
+  } else if (avgLatency <= 400) {
     els.latencyStatus.innerText = "Borderline Delay";
     els.latencyStatus.className = "text-xs font-semibold text-amber-400 mt-0.5";
   } else {
@@ -1103,15 +1240,15 @@ function computeScores() {
     ? (state.closedFrames / state.totalFrames) 
     : 0;
 
-  // Latency Factor: 180ms is perfect (1.0), 450ms is fully fatigued (0.0)
-  const lFactor = Math.max(0, Math.min(1, 1 - (avgLatency - 180) / 270));
-  // Jitter Factor: 7px is steady (1.0), 38px is highly unstable (0.0)
-  const jFactor = Math.max(0, Math.min(1, 1 - (avgJitter - 7) / 31));
+  // Latency Factor: 160ms is perfect (1.0), 550ms is fully fatigued (0.0)
+  const lFactor = Math.max(0, Math.min(1, 1 - (avgLatency - 160) / 390));
+  // Jitter Factor: 15px is steady (1.0), 60px is highly unstable (0.0)
+  const jFactor = Math.max(0, Math.min(1, 1 - (avgJitter - 15) / 45));
   // Drowsiness Factor: 0% closed time is perfect (1.0), 22% is fatigued (0.0)
   const dFactor = Math.max(0, Math.min(1, 1 - perclos / 0.22));
 
   // Weighted Cognitive Readiness Calculation
-  const readiness = Math.round((0.5 * lFactor + 0.25 * jFactor + 0.25 * dFactor) * 100);
+  const readiness = Math.round((0.45 * lFactor + 0.20 * jFactor + 0.35 * dFactor) * 100);
   
   return {
     readiness: Math.max(1, readiness),
@@ -1318,6 +1455,10 @@ els.btnReset.addEventListener('click', () => {
   state.blinkCount = 0;
   state.totalFrames = 0;
   state.closedFrames = 0;
+  state.fxHistory = [];
+  state.fyHistory = [];
+  state.calibFaceSizes = [];
+  state.calibContrasts = [];
   
   els.latencyVal.innerText = '--';
   els.latencyStatus.innerText = 'Not Tested';
@@ -1426,7 +1567,7 @@ function downloadReport() {
   doc.setFont("helvetica", "bold");
   doc.text(`${scores.avgLatency} ms`, 85, 125);
   doc.setFont("helvetica", "normal");
-  doc.text("180ms - 240ms (Optimal)", 140, 125);
+  doc.text("160ms - 280ms (Optimal)", 140, 125);
   doc.line(15, 129, 195, 129);
 
   // Row 2: Fixation Jitter
@@ -1434,7 +1575,7 @@ function downloadReport() {
   doc.setFont("helvetica", "bold");
   doc.text(`${scores.avgJitter.toFixed(2)} px`, 85, 136);
   doc.setFont("helvetica", "normal");
-  doc.text("< 12.0 px (Steady Gaze)", 140, 136);
+  doc.text("< 22.0 px (Steady Gaze)", 140, 136);
   doc.line(15, 140, 195, 140);
 
   // Row 3: Blink Frequency
