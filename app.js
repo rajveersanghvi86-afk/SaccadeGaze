@@ -683,13 +683,20 @@ function onResults(results) {
       const isContrastLow = currentContrast < 20; // Relaxed slightly to 20 for better sensitivity
       const isSizeShifted = sizeDev > 0.15;
       
-      if (isContrastLow || isSizeShifted) {
+      if (isContrastLow) {
         showCalibrationWarning("Light environment shifted. Recalibrating eye baseline...");
-        if (Math.random() < 0.03) {
-          console.log(`[SaccadeGaze Warning] sizeDev: ${(sizeDev * 100).toFixed(1)}%, contrast: ${currentContrast.toFixed(1)}`);
+      } else if (isSizeShifted) {
+        if (state.trialActive) {
+          showCalibrationWarning("Position shifted. Please keep your head still during the trial.");
+        } else {
+          showCalibrationWarning("Position shifted. Maintain baseline distance or recalibrate.");
         }
       } else {
         hideCalibrationWarning();
+      }
+      
+      if ((isContrastLow || isSizeShifted) && Math.random() < 0.03) {
+        console.log(`[SaccadeGaze Warning] sizeDev: ${(sizeDev * 100).toFixed(1)}%, contrast: ${currentContrast.toFixed(1)}`);
       }
     } else {
       // Even if not calibrated, warn if contrast is extremely low
@@ -707,6 +714,14 @@ function onResults(results) {
     // Face not detected
     state.confidence = 0;
     els.confidenceVal.innerText = '0%';
+    
+    // Check if the reason face is not detected is extremely low contrast (dark room/covered camera)
+    const currentContrast = calculateWebcamContrast();
+    if (currentContrast < 20) {
+      showCalibrationWarning("Light environment shifted. Recalibrating eye baseline...");
+    } else {
+      hideCalibrationWarning();
+    }
   }
 }
 
