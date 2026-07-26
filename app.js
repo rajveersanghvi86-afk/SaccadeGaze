@@ -69,7 +69,10 @@ const state = {
   baselineFaceSize: 0,
   baselineContrast: 0,
   calibFaceSizes: [],
-  calibContrasts: []
+  calibContrasts: [],
+
+  // 4-corner bilinear model extracted from 9-point calibration
+  bilinearCorners: null
 };
 
 // UI Elements
@@ -391,38 +394,34 @@ function extractGazeFeatures(landmarks) {
   };
 }
 
-// Map pupil features to screen pixels using 4-corner calibration samples
+// Map pupil features to screen pixels using bilinear interpolation over 4-corner
+// calibration samples (extracted from the 9-point calibration in finishCalibration).
 function estimateGaze(fx, fy) {
-  const samples = state.calibrationSamples;
   const rect = els.stimulusFrame.getBoundingClientRect();
-  
+
   let rx = 0.5;
   let ry = 0.5;
 
-  if (samples.length === 4 && state.isCalibrated) {
-    const tl = samples[0];
-    const tr = samples[1];
-    const bl = samples[2];
-    const br = samples[3];
+  if (state.bilinearCorners && state.isCalibrated) {
+    // TRUE BILINEAR INTERPOLATION with properly indexed corners:
+    // TL = samples[1], TR = samples[3], BL = samples[7], BR = samples[5]
+    const { tl, tr, bl, br } = state.bilinearCorners;
 
-    // Bilinear Interpolation over the 4 corners
-    // Average top fy and bottom fy boundaries
-    const fyTop = (tl.fy + tr.fy) / 2;
+    // Average top and bottom fy boundaries for vertical mapping
+    const fyTop    = (tl.fy + tr.fy) / 2;
     const fyBottom = (bl.fy + br.fy) / 2;
 
-    // Calculate vertical ratio (clamped 0 to 1, top to bottom)
+    // Vertical ratio (0 = top, 1 = bottom)
     ry = (fy - fyTop) / (fyBottom - fyTop + 1e-6);
     ry = Math.max(0, Math.min(1, ry));
 
-    // Calculate horizontal ratio along top and bottom edges
-    const rxTop = (fx - tl.fx) / (tr.fx - tl.fx + 1e-6);
+    // Horizontal ratio interpolated along top and bottom edges
+    const rxTop    = (fx - tl.fx) / (tr.fx - tl.fx + 1e-6);
     const rxBottom = (fx - bl.fx) / (br.fx - bl.fx + 1e-6);
-
-    // Linearly interpolate horizontal ratio based on vertical position
     rx = (1 - ry) * rxTop + ry * rxBottom;
     rx = Math.max(0, Math.min(1, rx));
   } else {
-    // Fallback bounds mapping if not calibrated
+    // Fallback linear bounds mapping (pre-calibration or demo mode)
     const bounds = state.calibBounds;
     rx = (fx - bounds.fxMin) / (bounds.fxMax - bounds.fxMin + 1e-6);
     ry = (fy - bounds.fyMin) / (bounds.fyMax - bounds.fyMin + 1e-6);
@@ -434,15 +433,15 @@ function estimateGaze(fx, fy) {
   const rawGazeY = ry * rect.height;
 
   // PHASE-AWARE ADAPTIVE SMOOTHING
-  // During an active saccade (pending confirmation), bypass EMA entirely and snap
-  // the gaze cursor directly to the raw mapped coordinate. This gives zero-lag
-  // tracking exactly when latency measurement demands it.
+  // During an active saccade, use a high-alpha (0.85) EMA instead of a full bypass.
+  // A complete bypass (alpha=1.0) caused single noisy frames to snap gaze to screen
+  // edges. Alpha=0.85 still responds within ~2 frames but rejects outlier spikes.
   if (state.trialActive && state.saccadePending && state.stimulusMode === 'saccadic') {
-    state.gazeX = rawGazeX;
-    state.gazeY = rawGazeY;
-    state.gazeXPrev = rawGazeX;
-    state.gazeYPrev = rawGazeY;
-    // Also record velocity baseline so the fixation alpha ramp starts clean
+    const snapAlpha = 0.85;
+    state.gazeX = snapAlpha * rawGazeX + (1 - snapAlpha) * state.gazeXPrev;
+    state.gazeY = snapAlpha * rawGazeY + (1 - snapAlpha) * state.gazeYPrev;
+    state.gazeXPrev = state.gazeX;
+    state.gazeYPrev = state.gazeY;
     state.lastFx = fx;
     state.lastFy = fy;
     return;
@@ -859,11 +858,12 @@ let calibYHistory = [];
 
 function startCalibration() {
   if (state.trialActive) return;
-  
+
   state.calibrationActive = true;
   state.calibrationIndex = 0;
   state.calibrationSamples = [];
   state.isCalibrated = false;
+  state.bilinearCorners = null; // Reset until new calibration completes
   state.fxHistory = [];
   state.fyHistory = [];
   state.calibFaceSizes = [];
@@ -954,10 +954,24 @@ function finishCalibration() {
     // Bottom boundary: Bottom-Left (index 7), Bottom-Center (index 6), Bottom-Right (index 5)
     const fyBottom = (samples[7].fy + samples[6].fy + samples[5].fy) / 3;
 
-    state.calibBounds.fxMin = fxLeft;
-    state.calibBounds.fxMax = fxRight;
-    state.calibBounds.fyMin = fyTop;
-    state.calibBounds.fyMax = fyBottom;
+    // Store true 4-corner bilinear model for use in estimateGaze.
+    // Correct 9-point indices: TL=1, TR=3, BL=7, BR=5
+    state.bilinearCorners = {
+      tl: { fx: samples[1].fx, fy: samples[1].fy },
+      tr: { fx: samples[3].fx, fy: samples[3].fy },
+      bl: { fx: samples[7].fx, fy: samples[7].fy },
+      br: { fx: samples[5].fx, fy: samples[5].fy }
+    };
+
+    // Also update calibBounds (used by fallback path) with 10% outward padding.
+    // This prevents normal eye positions near the periphery from getting hard-clamped
+    // to the screen edges during the linear-fallback or pre-calibration phases.
+    const fxRange = fxRight - fxLeft;
+    const fyRange = fyBottom - fyTop;
+    state.calibBounds.fxMin = fxLeft  - fxRange * 0.10;
+    state.calibBounds.fxMax = fxRight + fxRange * 0.10;
+    state.calibBounds.fyMin = fyTop   - fyRange * 0.10;
+    state.calibBounds.fyMax = fyBottom + fyRange * 0.10;
 
     // Calculate baseline face size and contrast averages
     if (state.calibFaceSizes.length > 0) {
