@@ -433,7 +433,22 @@ function estimateGaze(fx, fy) {
   const rawGazeX = rx * rect.width;
   const rawGazeY = ry * rect.height;
 
-  // DYNAMIC ADAPTIVE SMOOTHING WEIGHT
+  // PHASE-AWARE ADAPTIVE SMOOTHING
+  // During an active saccade (pending confirmation), bypass EMA entirely and snap
+  // the gaze cursor directly to the raw mapped coordinate. This gives zero-lag
+  // tracking exactly when latency measurement demands it.
+  if (state.trialActive && state.saccadePending && state.stimulusMode === 'saccadic') {
+    state.gazeX = rawGazeX;
+    state.gazeY = rawGazeY;
+    state.gazeXPrev = rawGazeX;
+    state.gazeYPrev = rawGazeY;
+    // Also record velocity baseline so the fixation alpha ramp starts clean
+    state.lastFx = fx;
+    state.lastFy = fy;
+    return;
+  }
+
+  // FIXATION / IDLE ADAPTIVE SMOOTHING
   // Measures instantaneous pupil velocity in feature space
   const lastFx = state.lastFx || fx;
   const lastFy = state.lastFy || fy;
@@ -441,14 +456,13 @@ function estimateGaze(fx, fy) {
   state.lastFx = fx;
   state.lastFy = fy;
 
-  // Saccade velocity detection threshold in relative socket units
-  const isMovingFast = velocity > 0.012;
-  const targetAlpha = isMovingFast ? 0.75 : 0.16;
+  // Lower velocity trigger (0.007) and higher fast alpha (0.90) for quicker response;
+  // faster ramp (0.55) so the filter transitions in ~2-3 frames instead of 5-6.
+  const isMovingFast = velocity > 0.007;
+  const targetAlpha = isMovingFast ? 0.90 : 0.16;
+  state.emaAlpha = 0.55 * targetAlpha + 0.45 * state.emaAlpha;
 
-  // Smooth filter transition
-  state.emaAlpha = 0.3 * targetAlpha + 0.7 * state.emaAlpha;
-
-  // Double Exponential filter smooth
+  // Exponential moving average smooth
   state.gazeX = state.emaAlpha * rawGazeX + (1 - state.emaAlpha) * state.gazeXPrev;
   state.gazeY = state.emaAlpha * rawGazeY + (1 - state.emaAlpha) * state.gazeYPrev;
 
@@ -644,19 +658,29 @@ function onResults(results) {
     // Compute pupil gaze normalization feature coordinates
     const eyeFeatures = extractGazeFeatures(landmarks);
 
-    // Apply 3-frame median moving average filter on raw coordinates
+    // Apply 3-frame median filter during fixation / idle for noise rejection.
+    // During an active saccade (saccadePending = true) we skip the median buffer
+    // and pass raw features directly — the buffer adds ~66ms lag at 30fps which
+    // distorts latency measurement precisely when accuracy matters most.
     state.fxHistory.push(eyeFeatures.fx);
     state.fyHistory.push(eyeFeatures.fy);
     if (state.fxHistory.length > 3) state.fxHistory.shift();
     if (state.fyHistory.length > 3) state.fyHistory.shift();
 
-    const filteredFx = getMedian(state.fxHistory);
-    const filteredFy = getMedian(state.fyHistory);
+    const usedFx = (state.trialActive && state.saccadePending && state.stimulusMode === 'saccadic')
+      ? eyeFeatures.fx
+      : getMedian(state.fxHistory);
+    const usedFy = (state.trialActive && state.saccadePending && state.stimulusMode === 'saccadic')
+      ? eyeFeatures.fy
+      : getMedian(state.fyHistory);
 
     // Update Gaze estimates if calibrated
     if (state.isCalibrated) {
-      estimateGaze(filteredFx, filteredFy);
+      estimateGaze(usedFx, usedFy);
       updateGazeIndicator();
+      if (state.trialActive) {
+        checkRealtimeDiagnostics(state.gazeX, state.gazeY);
+      }
     }
 
     // Compute current face dimensions (distance metric) and luminance contrast
@@ -671,8 +695,9 @@ function onResults(results) {
 
     // If Calibration Stage is running, collect calibration coordinate samples
     // Skip frames where the user blinked (EAR < 0.16) to prevent calibration corruption
+    // Use median-filtered coordinates (usedFx/usedFy) for stable calibration sampling
     if (state.calibrationActive && ear >= 0.16) {
-      recordCalibrationSample(filteredFx, filteredFy);
+      recordCalibrationSample(usedFx, usedFy);
       state.calibFaceSizes.push(currentFaceSize);
       state.calibContrasts.push(currentContrast);
     }
@@ -1142,8 +1167,11 @@ function checkRealtimeDiagnostics(currentGazeX, currentGazeY) {
       // progress = (G . V) / (V . V)
       const progress = (gx * vx + gy * vy) / (targetDist * targetDist);
 
-      // Saccade trigger check: has gaze crossed 38% progress threshold?
-      if (progress >= 0.38) {
+      // Saccade trigger check: has gaze crossed 28% progress threshold?
+      // Lowered from 38% — with phase-aware EMA the gaze snaps accurately so
+      // a 28% crossing is a reliable, early saccade signal that captures the
+      // true reaction time before any residual smoothing lag accumulates.
+      if (progress >= 0.28) {
         const latency = timeSinceJump;
         
         // Filter out accidental spikes or noise (<80ms)
