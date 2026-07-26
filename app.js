@@ -422,13 +422,22 @@ function estimateGaze(fx, fy) {
       // Power-4 (d2²) — nearest anchor dominates; naturally bounded within calibration hull
       const w   = 1 / (d2 * d2 + 1e-12);
 
-      weightedX   += w * corners[i].xPct * rect.width;
-      weightedY   += w * corners[i].yPct * rect.height;
+      // Accumulate percentages instead of raw pixels for easier scaling later
+      weightedX   += w * corners[i].xPct;
+      weightedY   += w * corners[i].yPct;
       totalWeight += w;
     }
 
-    rawGazeX = Math.max(0, Math.min(rect.width,  weightedX / totalWeight));
-    rawGazeY = Math.max(0, Math.min(rect.height, weightedY / totalWeight));
+    const idwX = weightedX / totalWeight; // Bounded between [0.1, 0.9]
+    const idwY = weightedY / totalWeight; // Bounded between [0.1, 0.9]
+
+    // Expand the 10%–90% calibration hull to cover the 0%–100% physical screen.
+    // Scale factor = 1 / 0.8 = 1.25 (centered around 0.5).
+    const mappedX = (idwX - 0.5) * 1.25 + 0.5;
+    const mappedY = (idwY - 0.5) * 1.25 + 0.5;
+
+    rawGazeX = Math.max(0, Math.min(rect.width,  mappedX * rect.width));
+    rawGazeY = Math.max(0, Math.min(rect.height, mappedY * rect.height));
   } else {
     // Fallback linear bounds mapping (pre-calibration or demo mode)
     const bounds = state.calibBounds;
