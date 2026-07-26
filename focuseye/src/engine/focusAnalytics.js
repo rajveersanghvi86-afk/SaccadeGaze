@@ -1,17 +1,30 @@
 // focusAnalytics.js
-// Handles Focus Score calculation and local Tauri Store persistence.
+// Handles Focus Score calculation and local Tauri Store / localStorage persistence.
 
 import { Store } from '@tauri-apps/plugin-store';
 
 export class FocusAnalytics {
     constructor() {
-        this.store = new Store('focuseye-analytics.bin');
+        this.isTauri = typeof window !== 'undefined' && !!window.__TAURI__;
+        if (this.isTauri) {
+            this.store = new Store('focuseye-analytics.bin');
+        }
         this.resetSession();
     }
 
     async init() {
-        await this.store.load();
-        const history = await this.store.get('daily_scores') || [];
+        let history = [];
+        if (this.isTauri && this.store) {
+            try {
+                await this.store.load();
+                history = await this.store.get('daily_scores') || [];
+            } catch (err) {
+                console.warn('Tauri store failed, using empty history.', err);
+            }
+        } else {
+            const raw = localStorage.getItem('daily_scores');
+            history = raw ? JSON.parse(raw) : [];
+        }
         console.log('Loaded focus history:', history);
     }
 
@@ -66,10 +79,16 @@ export class FocusAnalytics {
     // Call this every 5 minutes to log the score securely
     async logScoreInterval() {
         const timestamp = new Date().toISOString();
-        let history = await this.store.get('daily_scores');
-        if (!Array.isArray(history)) {
-            history = [];
+        let history = [];
+        
+        if (this.isTauri && this.store) {
+            history = await this.store.get('daily_scores') || [];
+        } else {
+            const raw = localStorage.getItem('daily_scores');
+            history = raw ? JSON.parse(raw) : [];
         }
+
+        if (!Array.isArray(history)) history = [];
 
         history.push({
             time: timestamp,
@@ -82,8 +101,13 @@ export class FocusAnalytics {
             history.shift();
         }
 
-        await this.store.set('daily_scores', history);
-        await this.store.save();
+        if (this.isTauri && this.store) {
+            await this.store.set('daily_scores', history);
+            await this.store.save();
+        } else {
+            localStorage.setItem('daily_scores', JSON.stringify(history));
+        }
+        
         console.log(`Saved focus score: ${this.currentFocusScore.toFixed(1)}`);
         
         // Reset counters for the next 5 minute interval

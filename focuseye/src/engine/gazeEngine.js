@@ -1,5 +1,5 @@
 // gazeEngine.js
-import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
+import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/+esm";
 
 export class GazeEngine {
     constructor() {

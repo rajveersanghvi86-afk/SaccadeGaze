@@ -1,7 +1,7 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager,
+    Manager, Emitter,
 };
 
 #[tauri::command]
@@ -24,8 +24,14 @@ pub fn run() {
             
             let menu = Menu::with_items(app, &[&open_i, &pause_i, &calib_i, &quit_i])?;
 
-            // Note: Make sure to load a default icon using `.icon(app.default_window_icon().unwrap().clone())`
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+
+            let icon = app.default_window_icon().cloned().unwrap();
             let tray = TrayIconBuilder::new()
+                .icon(icon)
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "quit" => {

@@ -1,6 +1,8 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap');
+
 :root {
-    --bg-slate: #0f172a;
-    --card-slate: #1e293b;
+    --bg-slate: #0b0f19;
+    --card-slate: rgba(30, 41, 59, 0.4);
     --text-main: #f8fafc;
     --text-muted: #94a3b8;
     
@@ -9,7 +11,7 @@
     --accent-rose: #ef4444;
     --accent-blue: #3b82f6;
 
-    --border-color: #334155;
+    --border-color: rgba(255, 255, 255, 0.1);
 }
 
 * {
@@ -20,8 +22,13 @@
 
 body {
     background-color: var(--bg-slate);
+    background-image: 
+        radial-gradient(circle at 15% 50%, rgba(16, 185, 129, 0.08), transparent 25%),
+        radial-gradient(circle at 85% 30%, rgba(59, 130, 246, 0.08), transparent 25%);
+    background-size: cover;
+    background-attachment: fixed;
     color: var(--text-main);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-family: 'Outfit', sans-serif;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
@@ -47,43 +54,67 @@ header {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    font-size: 1.5rem;
+    font-size: 1.75rem;
     font-weight: 700;
+    letter-spacing: -0.02em;
 }
 
 .logo-icon {
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
     background: linear-gradient(135deg, var(--accent-emerald), var(--accent-blue));
-    border-radius: 8px;
+    border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
 }
 
 .status-badge {
-    padding: 0.25rem 0.75rem;
+    padding: 0.35rem 1rem;
     border-radius: 9999px;
     font-size: 0.875rem;
     font-weight: 600;
-    background: rgba(16, 185, 129, 0.1);
+    background: rgba(16, 185, 129, 0.15);
     color: var(--accent-emerald);
-    border: 1px solid rgba(16, 185, 129, 0.2);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    backdrop-filter: blur(4px);
+    animation: pulse-emerald 2s infinite;
+}
+
+@keyframes pulse-emerald {
+    0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+    70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
 }
 
 .status-badge.warning {
-    background: rgba(245, 158, 11, 0.1);
+    background: rgba(245, 158, 11, 0.15);
     color: var(--accent-amber);
-    border-color: rgba(245, 158, 11, 0.2);
+    border-color: rgba(245, 158, 11, 0.3);
+    animation: pulse-amber 2s infinite;
+}
+
+@keyframes pulse-amber {
+    0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+    70% { box-shadow: 0 0 0 10px rgba(245, 158, 11, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
 }
 
 .status-badge.danger {
-    background: rgba(239, 68, 68, 0.1);
+    background: rgba(239, 68, 68, 0.15);
     color: var(--accent-rose);
-    border-color: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.3);
+    animation: pulse-rose 2s infinite;
 }
 
-/* Stats Grid */
+@keyframes pulse-rose {
+    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+    70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+/* Glassmorphism Cards */
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -91,33 +122,42 @@ header {
     margin-bottom: 2rem;
 }
 
-.stat-card {
+.stat-card, .camera-feed, .chart-container {
     background: var(--card-slate);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 1.5rem;
+    border-radius: 16px;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
+}
+
+.stat-card {
+    padding: 1.75rem;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    transition: transform 0.2s, box-shadow 0.2s;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s;
 }
 
 .stat-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+    border-color: rgba(255, 255, 255, 0.2);
 }
 
 .stat-label {
     color: var(--text-muted);
-    font-size: 0.875rem;
-    font-weight: 500;
+    font-size: 0.85rem;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.08em;
 }
 
 .stat-value {
-    font-size: 2.25rem;
+    font-size: 2.5rem;
     font-weight: 700;
+    line-height: 1.1;
+    transition: color 0.3s;
 }
 
 .stat-value.healthy { color: var(--accent-emerald); }
@@ -127,6 +167,7 @@ header {
 .stat-desc {
     font-size: 0.875rem;
     color: var(--text-muted);
+    margin-top: auto;
 }
 
 /* Engine View */
@@ -137,9 +178,6 @@ header {
 }
 
 .camera-feed {
-    background: var(--card-slate);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
     overflow: hidden;
     position: relative;
     aspect-ratio: 16/9;
@@ -149,14 +187,15 @@ header {
     width: 100%;
     height: 100%;
     object-fit: cover;
-    transform: scaleX(-1); /* Mirror */
+    /* Mirroring is now handled via Canvas context in app.js for drawing video */
 }
 
 /* Calibration Overlay */
 #calibrationOverlay {
     position: absolute;
     inset: 0;
-    background: rgba(15, 23, 42, 0.8);
+    background: rgba(11, 15, 25, 0.85);
+    backdrop-filter: blur(8px);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -171,37 +210,48 @@ header {
     background: var(--accent-emerald);
     border-radius: 50%;
     transform: translate(-50%, -50%);
-    box-shadow: 0 0 15px var(--accent-emerald);
+    box-shadow: 0 0 20px var(--accent-emerald);
     transition: left 0.3s ease, top 0.3s ease;
 }
 
 .btn {
-    padding: 0.75rem 1.5rem;
-    background: var(--accent-blue);
+    padding: 0.75rem 1.75rem;
+    background: linear-gradient(135deg, var(--accent-blue), #2563eb);
     color: white;
     border: none;
-    border-radius: 8px;
+    border-radius: 10px;
     font-weight: 600;
+    font-size: 0.95rem;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: transform 0.2s, box-shadow 0.2s, filter 0.2s;
+    font-family: inherit;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
 }
 
 .btn:hover {
-    background: #2563eb;
+    transform: translateY(-1px);
+    filter: brightness(1.1);
+    box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
+}
+
+.btn:active {
+    transform: translateY(1px);
 }
 
 .btn-calib {
-    background: var(--accent-emerald);
+    background: linear-gradient(135deg, var(--accent-emerald), #059669);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
 }
+
 .btn-calib:hover {
-    background: #059669;
+    box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
 }
 
 /* Charts */
 .chart-container {
-    background: var(--card-slate);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
     padding: 1.5rem;
-    height: 300px;
+    height: 100%;
+    min-height: 300px;
+    display: flex;
+    flex-direction: column;
 }

@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FocusEye</title>
-    <link rel="stylesheet" href="./styles.css">
+    <link rel="stylesheet" href="../styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="dashboard-container">
@@ -62,10 +63,9 @@
             </div>
             
             <div class="chart-container">
-                <h3 style="margin-bottom: 1rem; color: var(--text-muted); font-size: 0.875rem; text-transform: uppercase;">Focus Trends</h3>
-                <div id="chartPlaceholder" style="display: flex; align-items: center; justify-content: center; height: 80%; color: var(--border-color);">
-                    <!-- A real charting library like Chart.js would render here -->
-                    [ Trend Graph Data Loading ]
+                <h3 style="margin-bottom: 1rem; color: var(--text-muted); font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;">Focus Trends</h3>
+                <div style="flex-grow: 1; position: relative;">
+                    <canvas id="focusChart"></canvas>
                 </div>
             </div>
         </div>
