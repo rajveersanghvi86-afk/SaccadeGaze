@@ -72,7 +72,10 @@ const state = {
   calibContrasts: [],
 
   // 4-corner bilinear model extracted from 9-point calibration
-  bilinearCorners: null
+  bilinearCorners: null,
+
+  // Frames remaining in post-saccade EMA convergence burst (elevated alpha)
+  postSaccadeFrames: 0
 };
 
 // UI Elements
@@ -463,10 +466,20 @@ function estimateGaze(fx, fy) {
   state.lastFx = fx;
   state.lastFy = fy;
 
-  // Lower velocity trigger (0.007) and higher fast alpha (0.90) for quicker response;
-  // faster ramp (0.55) so the filter transitions in ~2-3 frames instead of 5-6.
+  // POST-SACCADE CONVERGENCE BURST
+  // For ~8 frames after a saccade lands, use a higher base alpha (0.45) so the
+  // EMA settles to the fixation point in ~267ms. Without this, the default 0.16
+  // alpha takes 30+ frames to converge, and the slow drift is measured as jitter.
+  let baseAlpha;
+  if (state.postSaccadeFrames > 0) {
+    baseAlpha = 0.45;
+    state.postSaccadeFrames--;
+  } else {
+    baseAlpha = 0.16; // low-noise stable fixation alpha
+  }
+
   const isMovingFast = velocity > 0.007;
-  const targetAlpha = isMovingFast ? 0.90 : 0.16;
+  const targetAlpha = isMovingFast ? 0.90 : baseAlpha;
   state.emaAlpha = 0.55 * targetAlpha + 0.45 * state.emaAlpha;
 
   // Exponential moving average smooth
@@ -914,11 +927,16 @@ function nextCalibrationStep() {
     if (progressPct >= 100) {
       clearInterval(sampleInterval);
       
-      // Store averages for corner
+      // Store averages for corner.
+      // Trim the first 40% of samples (eye-transit period) and average
+      // only the stable latter 60% for cleaner IDW calibration anchors.
       if (calibXHistory.length > 0) {
-        const avgX = calibXHistory.reduce((a,b)=>a+b, 0) / calibXHistory.length;
-        const avgY = calibYHistory.reduce((a,b)=>a+b, 0) / calibYHistory.length;
-        
+        const trimStart = Math.max(0, Math.floor(calibXHistory.length * 0.4));
+        const stableX = calibXHistory.slice(trimStart);
+        const stableY = calibYHistory.slice(trimStart);
+        const avgX = stableX.reduce((a,b) => a+b, 0) / stableX.length;
+        const avgY = stableY.reduce((a,b) => a+b, 0) / stableY.length;
+
         state.calibrationSamples.push({
           corner: corner.name,
           fx: avgX,
@@ -1202,9 +1220,12 @@ function checkRealtimeDiagnostics(currentGazeX, currentGazeY) {
         // Filter out accidental spikes or noise (<80ms)
         if (latency >= 80 && latency <= 1000) {
           state.saccadePending = false;
+          // Trigger convergence burst: 8 frames at alpha=0.45 to quickly
+          // settle gaze on the fixation point before jitter sampling begins
+          state.postSaccadeFrames = 8;
           state.latencyHistory.push(latency);
           updateChart(state.latencyHistory.length, latency);
-          
+
           // Audio feedback
           playBeep(900, 0.04);
         }
@@ -1212,8 +1233,10 @@ function checkRealtimeDiagnostics(currentGazeX, currentGazeY) {
     }
   }
 
-  // 2. Fixation Jitter Collector: Collect gaze samples between 350ms and 1150ms after target jump
-  if (state.trialActive && state.stimulusMode === 'saccadic' && timeSinceJump >= 350 && timeSinceJump < 1150) {
+  // 2. Fixation Jitter Collector: Only collect during CONFIRMED fixation
+  // (saccadePending must be false — mid-saccade samples with snapAlpha=0.85 inflate jitter)
+  if (state.trialActive && state.stimulusMode === 'saccadic' && !state.saccadePending &&
+      timeSinceJump >= 350 && timeSinceJump < 1150) {
     state.fixationGazeLogs.push({ x: currentGazeX, y: currentGazeY });
   }
 }
