@@ -399,8 +399,9 @@ function extractGazeFeatures(landmarks) {
 function estimateGaze(fx, fy) {
   const rect = els.stimulusFrame.getBoundingClientRect();
 
-  let rx = 0.5;
-  let ry = 0.5;
+  // Declare raw pixel outputs with safe center defaults
+  let rawGazeX = rect.width  / 2;
+  let rawGazeY = rect.height / 2;
 
   if (state.bilinearCorners && state.isCalibrated) {
     // TRUE BILINEAR INTERPOLATION with properly indexed corners:
@@ -411,26 +412,34 @@ function estimateGaze(fx, fy) {
     const fyTop    = (tl.fy + tr.fy) / 2;
     const fyBottom = (bl.fy + br.fy) / 2;
 
-    // Vertical ratio (0 = top, 1 = bottom)
-    ry = (fy - fyTop) / (fyBottom - fyTop + 1e-6);
+    // Vertical ratio (0 = top calibration row, 1 = bottom calibration row)
+    let ry = (fy - fyTop) / (fyBottom - fyTop + 1e-6);
     ry = Math.max(0, Math.min(1, ry));
 
     // Horizontal ratio interpolated along top and bottom edges
     const rxTop    = (fx - tl.fx) / (tr.fx - tl.fx + 1e-6);
     const rxBottom = (fx - bl.fx) / (br.fx - bl.fx + 1e-6);
-    rx = (1 - ry) * rxTop + ry * rxBottom;
+    let rx = (1 - ry) * rxTop + ry * rxBottom;
     rx = Math.max(0, Math.min(1, rx));
+
+    // KEY FIX: Remap normalized rx/ry through the actual screen percentage positions
+    // of the calibration corners. rx=0 → left corners at xPct=0.1 (not 0%), rx=1 →
+    // right corners at xPct=0.9 (not 100%). Without this, looking at the top-left
+    // calibration dot (at 10% of screen) would map to 0px (the absolute edge).
+    const mappedX = tl.xPct + rx * (tr.xPct - tl.xPct); // e.g. 0.1 + rx * 0.8
+    const mappedY = tl.yPct + ry * (bl.yPct - tl.yPct); // e.g. 0.1 + ry * 0.8
+    rawGazeX = Math.max(0, Math.min(rect.width,  mappedX * rect.width));
+    rawGazeY = Math.max(0, Math.min(rect.height, mappedY * rect.height));
   } else {
     // Fallback linear bounds mapping (pre-calibration or demo mode)
     const bounds = state.calibBounds;
-    rx = (fx - bounds.fxMin) / (bounds.fxMax - bounds.fxMin + 1e-6);
-    ry = (fy - bounds.fyMin) / (bounds.fyMax - bounds.fyMin + 1e-6);
+    let rx = (fx - bounds.fxMin) / (bounds.fxMax - bounds.fxMin + 1e-6);
+    let ry = (fy - bounds.fyMin) / (bounds.fyMax - bounds.fyMin + 1e-6);
     rx = Math.max(0, Math.min(1, rx));
     ry = Math.max(0, Math.min(1, ry));
+    rawGazeX = rx * rect.width;
+    rawGazeY = ry * rect.height;
   }
-
-  const rawGazeX = rx * rect.width;
-  const rawGazeY = ry * rect.height;
 
   // PHASE-AWARE ADAPTIVE SMOOTHING
   // During an active saccade, use a high-alpha (0.85) EMA instead of a full bypass.
@@ -956,11 +965,14 @@ function finishCalibration() {
 
     // Store true 4-corner bilinear model for use in estimateGaze.
     // Correct 9-point indices: TL=1, TR=3, BL=7, BR=5
+    // Store iris features AND screen percentage positions for each corner.
+    // The xPct/yPct values are the actual screen positions of the calibration targets
+    // (from the corners[] array) so estimateGaze can remap bilinear output correctly.
     state.bilinearCorners = {
-      tl: { fx: samples[1].fx, fy: samples[1].fy },
-      tr: { fx: samples[3].fx, fy: samples[3].fy },
-      bl: { fx: samples[7].fx, fy: samples[7].fy },
-      br: { fx: samples[5].fx, fy: samples[5].fy }
+      tl: { fx: samples[1].fx, fy: samples[1].fy, xPct: 0.1, yPct: 0.1 },
+      tr: { fx: samples[3].fx, fy: samples[3].fy, xPct: 0.9, yPct: 0.1 },
+      bl: { fx: samples[7].fx, fy: samples[7].fy, xPct: 0.1, yPct: 0.9 },
+      br: { fx: samples[5].fx, fy: samples[5].fy, xPct: 0.9, yPct: 0.9 }
     };
 
     // Also update calibBounds (used by fallback path) with 10% outward padding.
