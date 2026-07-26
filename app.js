@@ -417,9 +417,11 @@ function estimateGaze(fx, fy) {
     const mappedX = Ax * fx + Bx * fy + Cx;
     const mappedY = Ay * fx + By * fy + Cy;
 
-    // Cap slightly off-screen to allow hitting the exact edge smoothly
-    rawGazeX = Math.max(-0.1 * rect.width, Math.min(1.1 * rect.width,  mappedX * rect.width));
-    rawGazeY = Math.max(-0.1 * rect.height, Math.min(1.1 * rect.height, mappedY * rect.height));
+    // Strict screen-space clamping. The Affine extrapolates correctly to 0px/100%
+    // already; allowing negative values breaks the saccade progress dot product
+    // (negative gazeX makes progress < 0, detection never fires → 500ms fallback).
+    rawGazeX = Math.max(0, Math.min(rect.width,  mappedX * rect.width));
+    rawGazeY = Math.max(0, Math.min(rect.height, mappedY * rect.height));
   } else {
     // Fallback linear bounds mapping (pre-calibration or demo mode)
     const bounds = state.calibBounds;
@@ -455,22 +457,25 @@ function estimateGaze(fx, fy) {
   state.lastFy = fy;
 
   // POST-SACCADE CONVERGENCE BURST
-  // For ~8 frames after a saccade lands, use a higher base alpha (0.45) so the
-  // EMA settles to the fixation point in ~267ms. Without this, the default 0.16
-  // alpha takes 30+ frames to converge, and the slow drift is measured as jitter.
-  let baseAlpha;
+  // For ~8 frames after a saccade lands, force alpha=0.45 in its own early-return
+  // path so the velocity check cannot override it to 0.90. Without this separation,
+  // velocity is always high right after a saccade, nullifying the burst entirely.
   if (state.postSaccadeFrames > 0) {
-    baseAlpha = 0.45;
     state.postSaccadeFrames--;
-  } else {
-    baseAlpha = 0.16; // low-noise stable fixation alpha
+    state.emaAlpha = 0.45; // forced convergence, bypasses velocity check
+    state.gazeX = 0.45 * rawGazeX + 0.55 * state.gazeXPrev;
+    state.gazeY = 0.45 * rawGazeY + 0.55 * state.gazeYPrev;
+    state.gazeXPrev = state.gazeX;
+    state.gazeYPrev = state.gazeY;
+    return;
   }
 
+  // NORMAL FIXATION / IDLE ADAPTIVE SMOOTHING
+  // alpha=0.16 is the stable low-noise floor; alpha=0.90 for fast eye movements.
   const isMovingFast = velocity > 0.007;
-  const targetAlpha = isMovingFast ? 0.90 : baseAlpha;
+  const targetAlpha = isMovingFast ? 0.90 : 0.16;
   state.emaAlpha = 0.55 * targetAlpha + 0.45 * state.emaAlpha;
 
-  // Exponential moving average smooth
   state.gazeX = state.emaAlpha * rawGazeX + (1 - state.emaAlpha) * state.gazeXPrev;
   state.gazeY = state.emaAlpha * rawGazeY + (1 - state.emaAlpha) * state.gazeYPrev;
 
