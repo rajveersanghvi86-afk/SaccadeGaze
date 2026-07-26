@@ -74,9 +74,6 @@ const state = {
   // 4-corner bilinear model extracted from 9-point calibration
   bilinearCorners: null,
 
-  // 9-point robust affine transform for accurate edge extrapolation
-  affineTransform: null,
-
   // Frames remaining in post-saccade EMA convergence burst (elevated alpha)
   postSaccadeFrames: 0
 };
@@ -400,10 +397,10 @@ function extractGazeFeatures(landmarks) {
   };
 }
 
-// Map pupil iris features to screen pixels using Multiple Linear Regression (Affine Transform)
-// over all 9 calibration samples. Unlike IDW which artificially pulls back to the center 
-// when extrapolating beyond the 10%-90% calibration hull, this affine plane perfectly 
-// projects coordinates all the way to the 0%-100% screen edges while naturally handling head tilt.
+// Map pupil iris features to screen pixels using Inverse Distance Weighting (IDW)
+// over all 9 calibration samples. Power-4 weighting ensures the nearest calibration
+// anchor dominates so that out-of-range gaze stays bounded within the 10%–90%
+// calibration hull and never extrapolates to screen-edge corner positions.
 function estimateGaze(fx, fy) {
   const rect = els.stimulusFrame.getBoundingClientRect();
 
@@ -411,17 +408,27 @@ function estimateGaze(fx, fy) {
   let rawGazeX = rect.width  / 2;
   let rawGazeY = rect.height / 2;
 
-  if (state.isCalibrated && state.affineTransform) {
-    const { Ax, Bx, Cx, Ay, By, Cy } = state.affineTransform;
-    
-    const mappedX = Ax * fx + Bx * fy + Cx;
-    const mappedY = Ay * fx + By * fy + Cy;
+  if (state.isCalibrated && state.calibrationSamples.length > 0) {
+    let totalWeight = 0;
+    let weightedX   = 0;
+    let weightedY   = 0;
 
-    // Strict screen-space clamping. The Affine extrapolates correctly to 0px/100%
-    // already; allowing negative values breaks the saccade progress dot product
-    // (negative gazeX makes progress < 0, detection never fires → 500ms fallback).
-    rawGazeX = Math.max(0, Math.min(rect.width,  mappedX * rect.width));
-    rawGazeY = Math.max(0, Math.min(rect.height, mappedY * rect.height));
+    const n = Math.min(state.calibrationSamples.length, corners.length);
+    for (let i = 0; i < n; i++) {
+      const s   = state.calibrationSamples[i];
+      const dfx = fx - s.fx;
+      const dfy = fy - s.fy;
+      const d2  = dfx * dfx + dfy * dfy;
+      // Power-4 (d2²) — nearest anchor dominates; naturally bounded within calibration hull
+      const w   = 1 / (d2 * d2 + 1e-12);
+
+      weightedX   += w * corners[i].xPct * rect.width;
+      weightedY   += w * corners[i].yPct * rect.height;
+      totalWeight += w;
+    }
+
+    rawGazeX = Math.max(0, Math.min(rect.width,  weightedX / totalWeight));
+    rawGazeY = Math.max(0, Math.min(rect.height, weightedY / totalWeight));
   } else {
     // Fallback linear bounds mapping (pre-calibration or demo mode)
     const bounds = state.calibBounds;
@@ -973,41 +980,14 @@ function finishCalibration() {
     // Bottom boundary: Bottom-Left (index 7), Bottom-Center (index 6), Bottom-Right (index 5)
     const fyBottom = (samples[7].fy + samples[6].fy + samples[5].fy) / 3;
 
-    // Compute Affine Transform using Ordinary Least Squares (OLS) over all 9 points.
-    // This maps (fx, fy) -> xPct and (fx, fy) -> yPct robustly and allows perfect
-    // extrapolation to the screen edges (0% to 100%) even though dots are at 10% to 90%.
-    let sum_fx = 0, sum_fy = 0, sum_x = 0, sum_y = 0;
-    const n = samples.length;
-    for (let s of samples) {
-      sum_fx += s.fx; 
-      sum_fy += s.fy;
-      const c = corners.find(c => c.name === s.corner);
-      s.xPct = c ? c.xPct : 0.5;
-      s.yPct = c ? c.yPct : 0.5;
-      sum_x += s.xPct; 
-      sum_y += s.yPct;
-    }
-    const m_fx = sum_fx/n, m_fy = sum_fy/n, m_x = sum_x/n, m_y = sum_y/n;
-
-    let v_xx = 0, v_yy = 0, v_xy = 0;
-    let cov_fx_x = 0, cov_fy_x = 0;
-    let cov_fx_y = 0, cov_fy_y = 0;
-    for (let s of samples) {
-      const dx = s.fx - m_fx, dy = s.fy - m_fy;
-      v_xx += dx*dx; v_yy += dy*dy; v_xy += dx*dy;
-      cov_fx_x += dx*(s.xPct - m_x); cov_fy_x += dy*(s.xPct - m_x);
-      cov_fx_y += dx*(s.yPct - m_y); cov_fy_y += dy*(s.yPct - m_y);
-    }
-    const det = (v_xx * v_yy - v_xy * v_xy) || 1e-6;
-
-    state.affineTransform = {
-      Ax: (cov_fx_x * v_yy - cov_fy_x * v_xy) / det,
-      Bx: (cov_fy_x * v_xx - cov_fx_x * v_xy) / det,
-      Ay: (cov_fx_y * v_yy - cov_fy_y * v_xy) / det,
-      By: (cov_fy_y * v_xx - cov_fx_y * v_xy) / det,
+    // Retain bilinearCorners state (legacy — not used by IDW path but kept for reference)
+    state.bilinearCorners = {
+      tl: { fx: samples[1].fx, fy: samples[1].fy, xPct: 0.1, yPct: 0.1 },
+      tr: { fx: samples[3].fx, fy: samples[3].fy, xPct: 0.9, yPct: 0.1 },
+      bl: { fx: samples[7].fx, fy: samples[7].fy, xPct: 0.1, yPct: 0.9 },
+      br: { fx: samples[5].fx, fy: samples[5].fy, xPct: 0.9, yPct: 0.9 }
     };
-    state.affineTransform.Cx = m_x - state.affineTransform.Ax * m_fx - state.affineTransform.Bx * m_fy;
-    state.affineTransform.Cy = m_y - state.affineTransform.Ay * m_fx - state.affineTransform.By * m_fy;
+    state.affineTransform = null; // Affine not used; IDW handles mapping
 
     // Also update calibBounds (used by fallback path) with 10% outward padding.
     // This prevents normal eye positions near the periphery from getting hard-clamped
@@ -1367,7 +1347,7 @@ function computeScores() {
   const readiness = Math.round((0.45 * lFactor + 0.20 * jFactor + 0.35 * dFactor) * 100);
   
   // Apply +10% UI boost to the final score as requested
-  const displayReadiness = Math.max(1, Math.min(100, readiness + 10));
+  const displayReadiness = Math.max(1, Math.min(93, readiness + 10));
 
   return {
     readiness: displayReadiness,
