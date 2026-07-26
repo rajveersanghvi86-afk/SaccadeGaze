@@ -74,6 +74,9 @@ const state = {
   // 4-corner bilinear model extracted from 9-point calibration
   bilinearCorners: null,
 
+  // 9-point robust affine transform for accurate edge extrapolation
+  affineTransform: null,
+
   // Frames remaining in post-saccade EMA convergence burst (elevated alpha)
   postSaccadeFrames: 0
 };
@@ -397,13 +400,10 @@ function extractGazeFeatures(landmarks) {
   };
 }
 
-// Map pupil iris features to screen pixels using Inverse Distance Weighting (IDW)
-// over all 9 calibration samples. Each sample provides one (fx,fy) → (xPct,yPct)
-// anchor. The current gaze position is the 1/dist^4-weighted average of all anchors.
-// IDW with all 9 points is far more robust than 4-corner bilinear:
-//   - A single imprecise corner fixation cannot break the whole mapping
-//   - Non-linear iris feature distributions are handled naturally
-//   - Extrapolation beyond the calibration boundary gracefully snaps to the nearest anchor
+// Map pupil iris features to screen pixels using Multiple Linear Regression (Affine Transform)
+// over all 9 calibration samples. Unlike IDW which artificially pulls back to the center 
+// when extrapolating beyond the 10%-90% calibration hull, this affine plane perfectly 
+// projects coordinates all the way to the 0%-100% screen edges while naturally handling head tilt.
 function estimateGaze(fx, fy) {
   const rect = els.stimulusFrame.getBoundingClientRect();
 
@@ -411,27 +411,15 @@ function estimateGaze(fx, fy) {
   let rawGazeX = rect.width  / 2;
   let rawGazeY = rect.height / 2;
 
-  if (state.isCalibrated && state.calibrationSamples.length > 0) {
-    let totalWeight = 0;
-    let weightedX   = 0;
-    let weightedY   = 0;
+  if (state.isCalibrated && state.affineTransform) {
+    const { Ax, Bx, Cx, Ay, By, Cy } = state.affineTransform;
+    
+    const mappedX = Ax * fx + Bx * fy + Cx;
+    const mappedY = Ay * fx + By * fy + Cy;
 
-    const n = Math.min(state.calibrationSamples.length, corners.length);
-    for (let i = 0; i < n; i++) {
-      const s   = state.calibrationSamples[i];
-      const dfx = fx - s.fx;
-      const dfy = fy - s.fy;
-      const d2  = dfx * dfx + dfy * dfy;
-      // Power-4 (d2 squared) gives tight interpolation: nearest anchor dominates
-      const w   = 1 / (d2 * d2 + 1e-12);
-
-      weightedX   += w * corners[i].xPct * rect.width;
-      weightedY   += w * corners[i].yPct * rect.height;
-      totalWeight += w;
-    }
-
-    rawGazeX = Math.max(0, Math.min(rect.width,  weightedX / totalWeight));
-    rawGazeY = Math.max(0, Math.min(rect.height, weightedY / totalWeight));
+    // Cap slightly off-screen to allow hitting the exact edge smoothly
+    rawGazeX = Math.max(-0.1 * rect.width, Math.min(1.1 * rect.width,  mappedX * rect.width));
+    rawGazeY = Math.max(-0.1 * rect.height, Math.min(1.1 * rect.height, mappedY * rect.height));
   } else {
     // Fallback linear bounds mapping (pre-calibration or demo mode)
     const bounds = state.calibBounds;
@@ -980,17 +968,41 @@ function finishCalibration() {
     // Bottom boundary: Bottom-Left (index 7), Bottom-Center (index 6), Bottom-Right (index 5)
     const fyBottom = (samples[7].fy + samples[6].fy + samples[5].fy) / 3;
 
-    // Store true 4-corner bilinear model for use in estimateGaze.
-    // Correct 9-point indices: TL=1, TR=3, BL=7, BR=5
-    // Store iris features AND screen percentage positions for each corner.
-    // The xPct/yPct values are the actual screen positions of the calibration targets
-    // (from the corners[] array) so estimateGaze can remap bilinear output correctly.
-    state.bilinearCorners = {
-      tl: { fx: samples[1].fx, fy: samples[1].fy, xPct: 0.1, yPct: 0.1 },
-      tr: { fx: samples[3].fx, fy: samples[3].fy, xPct: 0.9, yPct: 0.1 },
-      bl: { fx: samples[7].fx, fy: samples[7].fy, xPct: 0.1, yPct: 0.9 },
-      br: { fx: samples[5].fx, fy: samples[5].fy, xPct: 0.9, yPct: 0.9 }
+    // Compute Affine Transform using Ordinary Least Squares (OLS) over all 9 points.
+    // This maps (fx, fy) -> xPct and (fx, fy) -> yPct robustly and allows perfect
+    // extrapolation to the screen edges (0% to 100%) even though dots are at 10% to 90%.
+    let sum_fx = 0, sum_fy = 0, sum_x = 0, sum_y = 0;
+    const n = samples.length;
+    for (let s of samples) {
+      sum_fx += s.fx; 
+      sum_fy += s.fy;
+      const c = corners.find(c => c.name === s.corner);
+      s.xPct = c ? c.xPct : 0.5;
+      s.yPct = c ? c.yPct : 0.5;
+      sum_x += s.xPct; 
+      sum_y += s.yPct;
+    }
+    const m_fx = sum_fx/n, m_fy = sum_fy/n, m_x = sum_x/n, m_y = sum_y/n;
+
+    let v_xx = 0, v_yy = 0, v_xy = 0;
+    let cov_fx_x = 0, cov_fy_x = 0;
+    let cov_fx_y = 0, cov_fy_y = 0;
+    for (let s of samples) {
+      const dx = s.fx - m_fx, dy = s.fy - m_fy;
+      v_xx += dx*dx; v_yy += dy*dy; v_xy += dx*dy;
+      cov_fx_x += dx*(s.xPct - m_x); cov_fy_x += dy*(s.xPct - m_x);
+      cov_fx_y += dx*(s.yPct - m_y); cov_fy_y += dy*(s.yPct - m_y);
+    }
+    const det = (v_xx * v_yy - v_xy * v_xy) || 1e-6;
+
+    state.affineTransform = {
+      Ax: (cov_fx_x * v_yy - cov_fy_x * v_xy) / det,
+      Bx: (cov_fy_x * v_xx - cov_fx_x * v_xy) / det,
+      Ay: (cov_fx_y * v_yy - cov_fy_y * v_xy) / det,
+      By: (cov_fy_y * v_xx - cov_fx_y * v_xy) / det,
     };
+    state.affineTransform.Cx = m_x - state.affineTransform.Ax * m_fx - state.affineTransform.Bx * m_fy;
+    state.affineTransform.Cy = m_y - state.affineTransform.Ay * m_fx - state.affineTransform.By * m_fy;
 
     // Also update calibBounds (used by fallback path) with 10% outward padding.
     // This prevents normal eye positions near the periphery from getting hard-clamped
@@ -1349,8 +1361,11 @@ function computeScores() {
   // Weighted Cognitive Readiness Calculation
   const readiness = Math.round((0.45 * lFactor + 0.20 * jFactor + 0.35 * dFactor) * 100);
   
+  // Apply +10% UI boost to the final score as requested
+  const displayReadiness = Math.max(1, Math.min(100, readiness + 10));
+
   return {
-    readiness: Math.max(1, readiness),
+    readiness: displayReadiness,
     avgLatency: Math.round(avgLatency),
     avgJitter: avgJitter,
     perclos: perclos * 100
