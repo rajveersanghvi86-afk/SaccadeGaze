@@ -1,21 +1,20 @@
 // focusAnalytics.js
 // Handles Focus Score calculation and local Tauri Store / localStorage persistence.
 
-import { Store } from '@tauri-apps/plugin-store';
-
 export class FocusAnalytics {
     constructor() {
         this.isTauri = typeof window !== 'undefined' && !!window.__TAURI__;
-        if (this.isTauri) {
-            this.store = new Store('focuseye-analytics.bin');
-        }
+        this.store = null;
         this.resetSession();
     }
 
     async init() {
         let history = [];
-        if (this.isTauri && this.store) {
+        if (this.isTauri) {
             try {
+                // Dynamic import prevents browser from crashing when deployed to GitHub Pages
+                const { Store } = await import('@tauri-apps/plugin-store');
+                this.store = new Store('focuseye-analytics.bin');
                 await this.store.load();
                 history = await this.store.get('daily_scores') || [];
             } catch (err) {
