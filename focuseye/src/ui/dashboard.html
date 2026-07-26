@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FocusEye</title>
+    <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <header>
+            <div class="logo">
+                <div class="logo-icon">
+                    <!-- Simple SVG Eye Icon -->
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                        <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                </div>
+                FocusEye
+            </div>
+            <div id="globalStatus" class="status-badge">Monitoring Active</div>
+            <button id="btnRecalibrate" class="btn btn-calib">Recalibrate Gaze</button>
+        </header>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <span class="stat-label">Blink Rate</span>
+                <span id="statBpm" class="stat-value healthy">0<span style="font-size: 1rem; color: var(--text-muted);"> BPM</span></span>
+                <span class="stat-desc">Target: 15-20 BPM</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">Drowsiness (PERCLOS)</span>
+                <span id="statPerclos" class="stat-value healthy">0%</span>
+                <span id="statPerclosDesc" class="stat-desc">Alert & Awake</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">Posture Status</span>
+                <span id="statPosture" class="stat-value healthy">Healthy</span>
+                <span id="statPostureDesc" class="stat-desc">Distance optimal</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">Focus Score</span>
+                <span id="statFocus" class="stat-value healthy">100</span>
+                <span class="stat-desc">Daily Deep Work Analytics</span>
+            </div>
+        </div>
+
+        <div class="engine-view">
+            <div class="camera-feed">
+                <!-- Video element used by MediaPipe (hidden) -->
+                <video id="webcam" autoplay playsinline style="display: none;"></video>
+                <!-- Canvas for drawing landmarks and calibration -->
+                <canvas id="output_canvas"></canvas>
+                
+                <!-- Calibration Overlay -->
+                <div id="calibrationOverlay" class="hidden">
+                    <h2 style="margin-bottom: 1rem;">Gaze Calibration</h2>
+                    <p id="calibText" style="margin-bottom: 2rem; color: var(--text-muted);">Follow the green dot with your eyes</p>
+                    <div id="calibTarget"></div>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h3 style="margin-bottom: 1rem; color: var(--text-muted); font-size: 0.875rem; text-transform: uppercase;">Focus Trends</h3>
+                <div id="chartPlaceholder" style="display: flex; align-items: center; justify-content: center; height: 80%; color: var(--border-color);">
+                    <!-- A real charting library like Chart.js would render here -->
+                    [ Trend Graph Data Loading ]
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- The main application logic will be bundled via Vite/Tauri -->
+    <script type="module" src="./app.js"></script>
+</body>
+</html>

@@ -37,12 +37,12 @@ The app uses **Eye Socket Normalization** to make pupil tracking robust against 
    By calculating offsets relative to the eye socket corners rather than the raw pixel coordinates, we maintain head-pose-invariant gaze features. Denominator operations utilize absolute values (`Math.abs`) to prevent widths from flipping under mirroring.
 
 2. **Calibration Engine**:
-   Displays targets at four corners ($10\%$ and $90\%$ of screen margins). It samples the minimum and maximum normal features ($fx_{min}, fx_{max}, fy_{min}, fy_{max}$) to construct a linear interpolation mapping to pixel coordinates.
+   Displays targets at 9 calibration points across the screen (Center, Corners, and Edge Midpoints). It samples the normalized features to construct a mapping using bilinear interpolation.
 
 3. **Cognitive Readiness Index**:
-   $$Readiness (%) = (0.50 \times LatencyFactor + 0.25 \times JitterFactor + 0.25 \times DrowsinessFactor) \times 100\%$$
-   - **Latency Factor**: Clamped linear function between 180ms (1.0) and 450ms (0.0).
-   - **Jitter Factor**: Clamped linear function between 7px (1.0) and 38px (0.0).
+   $$Readiness (\%) = (0.45 \times LatencyFactor + 0.20 \times JitterFactor + 0.35 \times DrowsinessFactor) \times 100\%$$
+   - **Latency Factor**: Clamped linear function between 160ms (1.0) and 550ms (0.0).
+   - **Jitter Factor**: Clamped linear function between 15px (1.0) and 60px (0.0).
    - **Drowsiness Factor**: Clamped linear function between 0% PERCLOS (1.0) and 22% PERCLOS (0.0).
 
 ---
