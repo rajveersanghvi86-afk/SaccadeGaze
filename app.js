@@ -394,42 +394,41 @@ function extractGazeFeatures(landmarks) {
   };
 }
 
-// Map pupil features to screen pixels using bilinear interpolation over 4-corner
-// calibration samples (extracted from the 9-point calibration in finishCalibration).
+// Map pupil iris features to screen pixels using Inverse Distance Weighting (IDW)
+// over all 9 calibration samples. Each sample provides one (fx,fy) → (xPct,yPct)
+// anchor. The current gaze position is the 1/dist^4-weighted average of all anchors.
+// IDW with all 9 points is far more robust than 4-corner bilinear:
+//   - A single imprecise corner fixation cannot break the whole mapping
+//   - Non-linear iris feature distributions are handled naturally
+//   - Extrapolation beyond the calibration boundary gracefully snaps to the nearest anchor
 function estimateGaze(fx, fy) {
   const rect = els.stimulusFrame.getBoundingClientRect();
 
-  // Declare raw pixel outputs with safe center defaults
+  // Safe center default
   let rawGazeX = rect.width  / 2;
   let rawGazeY = rect.height / 2;
 
-  if (state.bilinearCorners && state.isCalibrated) {
-    // TRUE BILINEAR INTERPOLATION with properly indexed corners:
-    // TL = samples[1], TR = samples[3], BL = samples[7], BR = samples[5]
-    const { tl, tr, bl, br } = state.bilinearCorners;
+  if (state.isCalibrated && state.calibrationSamples.length > 0) {
+    let totalWeight = 0;
+    let weightedX   = 0;
+    let weightedY   = 0;
 
-    // Average top and bottom fy boundaries for vertical mapping
-    const fyTop    = (tl.fy + tr.fy) / 2;
-    const fyBottom = (bl.fy + br.fy) / 2;
+    const n = Math.min(state.calibrationSamples.length, corners.length);
+    for (let i = 0; i < n; i++) {
+      const s   = state.calibrationSamples[i];
+      const dfx = fx - s.fx;
+      const dfy = fy - s.fy;
+      const d2  = dfx * dfx + dfy * dfy;
+      // Power-4 (d2 squared) gives tight interpolation: nearest anchor dominates
+      const w   = 1 / (d2 * d2 + 1e-12);
 
-    // Vertical ratio (0 = top calibration row, 1 = bottom calibration row)
-    let ry = (fy - fyTop) / (fyBottom - fyTop + 1e-6);
-    ry = Math.max(0, Math.min(1, ry));
+      weightedX   += w * corners[i].xPct * rect.width;
+      weightedY   += w * corners[i].yPct * rect.height;
+      totalWeight += w;
+    }
 
-    // Horizontal ratio interpolated along top and bottom edges
-    const rxTop    = (fx - tl.fx) / (tr.fx - tl.fx + 1e-6);
-    const rxBottom = (fx - bl.fx) / (br.fx - bl.fx + 1e-6);
-    let rx = (1 - ry) * rxTop + ry * rxBottom;
-    rx = Math.max(0, Math.min(1, rx));
-
-    // KEY FIX: Remap normalized rx/ry through the actual screen percentage positions
-    // of the calibration corners. rx=0 → left corners at xPct=0.1 (not 0%), rx=1 →
-    // right corners at xPct=0.9 (not 100%). Without this, looking at the top-left
-    // calibration dot (at 10% of screen) would map to 0px (the absolute edge).
-    const mappedX = tl.xPct + rx * (tr.xPct - tl.xPct); // e.g. 0.1 + rx * 0.8
-    const mappedY = tl.yPct + ry * (bl.yPct - tl.yPct); // e.g. 0.1 + ry * 0.8
-    rawGazeX = Math.max(0, Math.min(rect.width,  mappedX * rect.width));
-    rawGazeY = Math.max(0, Math.min(rect.height, mappedY * rect.height));
+    rawGazeX = Math.max(0, Math.min(rect.width,  weightedX / totalWeight));
+    rawGazeY = Math.max(0, Math.min(rect.height, weightedY / totalWeight));
   } else {
     // Fallback linear bounds mapping (pre-calibration or demo mode)
     const bounds = state.calibBounds;
